@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><title>Secure Speech Relay</title></head>
+<body>
+<script>
+    let recognition = null;
+    let isListening = false;
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+
+        recognition.onresult = (event) => {
+            const text = event.results[event.results.length - 1][0].transcript.trim();
+            if (text) {
+                // Send the text back up to FiveM
+                window.parent.postMessage({ type: 'speech_result', text: text }, '*');
+            }
+        };
+
+        recognition.onend = () => {
+            if (isListening && recognition) {
+                try { recognition.start(); } catch(e) {}
+            }
+        };
+
+        recognition.onerror = (event) => {
+            window.parent.postMessage({ type: 'speech_error', error: event.error }, '*');
+        };
+    }
+
+    // Listen for start/stop commands from FiveM
+    window.addEventListener('message', (event) => {
+        if (event.data.action === 'start') {
+            isListening = true;
+            if (recognition) { try { recognition.start(); } catch(e) {} }
+        } else if (event.data.action === 'stop') {
+            isListening = false;
+            if (recognition) { recognition.stop(); }
+        }
+    });
+</script>
+</body>
+</html>
