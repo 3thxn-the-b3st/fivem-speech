@@ -1,44 +1,44 @@
 <!DOCTYPE html>
 <html>
-<head><title>Secure Speech Relay</title></head>
+<head><title>Speech Relay</title></head>
 <body>
 <script>
-    let recognition = null;
-    let isListening = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
 
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
-
-        recognition.onresult = (event) => {
-            const text = event.results[event.results.length - 1][0].transcript.trim();
-            if (text) {
-                // Send the text back up to FiveM
-                window.parent.postMessage({ type: 'speech_result', text: text }, '*');
-            }
-        };
-
-        recognition.onend = () => {
-            if (isListening && recognition) {
-                try { recognition.start(); } catch(e) {}
-            }
-        };
-
-        recognition.onerror = (event) => {
-            window.parent.postMessage({ type: 'speech_error', error: event.error }, '*');
-        };
-    }
-
-    // Listen for start/stop commands from FiveM
-    window.addEventListener('message', (event) => {
+    window.addEventListener('message', async (event) => {
         if (event.data.action === 'start') {
-            isListening = true;
-            if (recognition) { try { recognition.start(); } catch(e) {} }
-        } else if (event.data.action === 'stop') {
-            isListening = false;
-            if (recognition) { recognition.stop(); }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = () => {
+                        // Send base64 audio snippet back to FiveM
+                        window.parent.postMessage({ type: 'audio_snippet', base64: reader.result }, '*');
+                    };
+                    // Stop tracks to release mic
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                window.parent.postMessage({ type: 'status', text: 'recording' }, '*');
+            } catch (err) {
+                window.parent.postMessage({ type: 'speech_error', error: err.message }, '*');
+            }
+        } 
+        else if (event.data.action === 'stop') {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
         }
     });
 </script>
